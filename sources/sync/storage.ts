@@ -309,11 +309,18 @@ export const storage = create<StorageState>()((set, get) => {
                 const savedDraft = savedDrafts[session.id];
                 const existingPermissionMode = state.sessions[session.id]?.permissionMode;
                 const savedPermissionMode = savedPermissionModes[session.id];
+
+                // Check if we've already received a ready event for this session (stored in reducerState)
+                const sessionMessages = state.sessionMessages[session.id];
+                const hasReceivedReady = sessionMessages?.reducerState?.hasReceivedReady;
+
                 mergedSessions[session.id] = {
                     ...session,
                     presence,
                     draft: existingDraft || savedDraft || session.draft || null,
-                    permissionMode: existingPermissionMode || savedPermissionMode || session.permissionMode || 'default'
+                    permissionMode: existingPermissionMode || savedPermissionMode || session.permissionMode || 'default',
+                    // Sync agentReady from reducerState if ready event was received before session was loaded
+                    ...(hasReceivedReady && { agentReady: true })
                 };
             });
 
@@ -423,11 +430,16 @@ export const storage = create<StorageState>()((set, get) => {
                         isLoaded: existingSessionMessages.isLoaded
                     };
 
-                    // IMPORTANT: Copy latestUsage from reducerState to Session for immediate availability
-                    if (existingSessionMessages.reducerState.latestUsage) {
+                    // IMPORTANT: Copy latestUsage and agentReady from reducerState to Session for immediate availability
+                    if (existingSessionMessages.reducerState.latestUsage || existingSessionMessages.reducerState.hasReceivedReady) {
                         mergedSessions[session.id] = {
                             ...mergedSessions[session.id],
-                            latestUsage: { ...existingSessionMessages.reducerState.latestUsage }
+                            ...(existingSessionMessages.reducerState.latestUsage && {
+                                latestUsage: { ...existingSessionMessages.reducerState.latestUsage }
+                            }),
+                            ...(existingSessionMessages.reducerState.hasReceivedReady && {
+                                agentReady: true
+                            })
                         };
                     }
                 }
@@ -506,13 +518,17 @@ export const storage = create<StorageState>()((set, get) => {
                 const messagesArray = Object.values(mergedMessagesMap)
                     .sort((a, b) => b.createdAt - a.createdAt);
 
-                // Update session with todos and latestUsage
+                // Update session with todos, latestUsage, and agentReady
                 // IMPORTANT: We extract latestUsage from the mutable reducerState and copy it to the Session object
                 // This ensures latestUsage is available immediately on load, even before messages are fully loaded
+                // We also sync hasReceivedReady from reducerState to session.agentReady
                 let updatedSessions = state.sessions;
-                const needsUpdate = (reducerResult.todos !== undefined || existingSession.reducerState.latestUsage) && session;
+                const needsTodosOrUsageUpdate = (reducerResult.todos !== undefined || existingSession.reducerState.latestUsage) && session;
+                // Check both current hasReadyEvent AND persisted hasReceivedReady from reducer state
+                const agentIsReady = hasReadyEvent || existingSession.reducerState.hasReceivedReady;
+                const needsAgentReadyUpdate = agentIsReady && session && !session.agentReady;
 
-                if (needsUpdate) {
+                if (needsTodosOrUsageUpdate || needsAgentReadyUpdate) {
                     updatedSessions = {
                         ...state.sessions,
                         [sessionId]: {
@@ -521,7 +537,9 @@ export const storage = create<StorageState>()((set, get) => {
                             // Copy latestUsage from reducerState to make it immediately available
                             latestUsage: existingSession.reducerState.latestUsage ? {
                                 ...existingSession.reducerState.latestUsage
-                            } : session.latestUsage
+                            } : session.latestUsage,
+                            // Set agentReady when we have received the ready event from the agent
+                            ...(agentIsReady && { agentReady: true })
                         }
                     };
                 }

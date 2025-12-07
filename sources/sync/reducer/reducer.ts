@@ -166,6 +166,7 @@ export type ReducerState = {
         contextSize: number;
         timestamp: number;
     };
+    hasReceivedReady?: boolean; // True once agent has sent a 'ready' event
 };
 
 export function createReducer(): ReducerState {
@@ -248,6 +249,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
         if (msg.role === 'event' && msg.content.type === 'ready') {
             // Mark as processed to prevent duplication but don't add to messages
             state.messageIds.set(msg.id, msg.id);
+            state.hasReceivedReady = true; // Persist in reducer state
             hasReadyEvent = true;
             continue;
         }

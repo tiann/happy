@@ -564,6 +564,50 @@ class Sync {
         return this.sessionsSync.invalidateAndAwait();
     }
 
+    /**
+     * Wait for a session's agent to be ready.
+     * The ready event indicates that the agent (e.g., Claude SDK) is initialized and ready to process messages.
+     * @param sessionId - The session to wait for
+     * @param timeout - Maximum time to wait in ms (default 15000)
+     * @returns Promise that resolves when ready, rejects on timeout
+     */
+    public waitForSessionReady = async (sessionId: string, timeout: number = 15000): Promise<void> => {
+        // First, ensure we fetch messages for this session.
+        // This is critical because the ready event might have arrived via WebSocket
+        // before encryption was available, causing it to be dropped.
+        // Fetching messages from the server ensures we get the ready event.
+        let messageSync = this.messagesSync.get(sessionId);
+        if (!messageSync) {
+            messageSync = new InvalidateSync(() => this.fetchMessages(sessionId));
+            this.messagesSync.set(sessionId, messageSync);
+        }
+        await messageSync.invalidateAndAwait();
+
+        // Now check if already ready (after fetching messages)
+        const state = storage.getState();
+        const session = state.sessions[sessionId];
+        if (session?.agentReady) {
+            return;
+        }
+
+        // Wait for agentReady to become true
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                unsubscribe();
+                reject(new Error('Timeout waiting for session ready'));
+            }, timeout);
+
+            const unsubscribe = storage.subscribe((state) => {
+                const session = state.sessions[sessionId];
+                if (session?.agentReady) {
+                    clearTimeout(timeoutId);
+                    unsubscribe();
+                    resolve();
+                }
+            });
+        });
+    }
+
     public getCredentials() {
         return this.credentials;
     }

@@ -82,6 +82,7 @@ export interface Session {
         contextSize: number;
         timestamp: number;
     } | null;
+    agentReady?: boolean; // True when agent has sent 'ready' event (SDK initialized and ready to process messages)
 }
 
 export interface DecryptedMessage {

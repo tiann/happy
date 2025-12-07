@@ -397,6 +397,15 @@ function NewSessionScreen() {
                 // Load sessions
                 await sync.refreshSessions();
 
+                // Wait for CLI to be ready before sending the first message
+                // This prevents a race condition where the message is sent before CLI connects
+                try {
+                    await sync.waitForSessionReady(result.sessionId, 15000);
+                } catch (e) {
+                    console.warn('Session ready timeout, sending message anyway:', e);
+                    // Continue anyway - the message might still work if CLI connected late
+                }
+
                 // Set permission and model modes on the session
                 storage.getState().updateSessionPermissionMode(result.sessionId, permissionMode);
                 storage.getState().updateSessionModelMode(result.sessionId, modelMode);
